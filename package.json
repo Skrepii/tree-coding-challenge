@@ -1,0 +1,21 @@
+{
+  "name": "challange",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "serve": "tsc && node build/app.js",
+    "tsc": "tsc"
+  },
+  "author": "Matiss Cikota",
+  "license": "ISC",
+  "dependencies": {
+    "@types/express": "^4.17.2",
+    "@types/mongoose": "^5.5.30",
+    "@types/node": "^12.12.7",
+    "express": "^4.17.1",
+    "mongoose": "^5.7.10",
+    "typescript": "^3.7.2"
+  }
+}
