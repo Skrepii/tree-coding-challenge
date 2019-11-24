@@ -8,9 +8,15 @@ interface INode extends Document {
     parentNode: string;
     children: string[];
 
-    setParent(node: INode | null): Promise<INode | null>;
+    setParent(nodeId: string | null): Promise<INode | null>;
     removeChild(id: string): void;
     calibrateHeightRoot(root?: string): Promise<void>;
+}
+
+interface INodeModel extends Model<INode> {
+    createNode(description: string, parentNodeId?: string): Promise<INode>;
+    deleteNode(nodeId: string): Promise<INode>;
+    swapParent(childNodeId: string, parentNodeId: string | null): Promise<object>;
 }
 
 const NodeSchema: Schema = new Schema({
@@ -21,7 +27,7 @@ const NodeSchema: Schema = new Schema({
     children: [{ type: Schema.Types.ObjectId, ref: 'Node' }]
 });
 
-NodeSchema.methods.setParent = function (node: INode | null): Promise<INode | null> {
+NodeSchema.methods.setParent = function (nodeId: string | null): Promise<INode | null> {
     return new Promise(async (resolve, reject) => {
 
         let session: ClientSession = await Node.db.startSession();
@@ -29,6 +35,7 @@ NodeSchema.methods.setParent = function (node: INode | null): Promise<INode | nu
 
         let previousRoot: INode | null = null;
         let parentNode: INode | null = null;
+        let node: INode | null = null;
 
         if (this.parentNode) {
             try {
@@ -43,7 +50,7 @@ NodeSchema.methods.setParent = function (node: INode | null): Promise<INode | nu
 
         // Check if the node we're changing to is null, if so then we set it as root
         // and add previous root as a child
-        if (!node) {
+        if (!nodeId) {
             try {
                 // Finding the previous root node
                 previousRoot = await Node.findById(this.rootNode);
@@ -59,9 +66,23 @@ NodeSchema.methods.setParent = function (node: INode | null): Promise<INode | nu
             this.height = 0;
             this.rootNode = this._id;
         } else {
-            this.parentNode = node._id;
-            this.height = node.height + 1;
-            node.children.push(this._id);
+            try {
+                node = await Node.findById(nodeId);
+                if (node) {
+                    this.parentNode = node._id;
+                    this.height = node.height + 1;
+                    node.children.push(this._id);
+                }
+            } catch (err) {
+                console.error('Failed to find new parent node\n', err);
+                await session.abortTransaction();
+                session.endSession();
+                reject({
+                    error: 'Failed to find!',
+                    message: 'Failed to find node with id of nodeId'
+                });
+                return;
+            }
         }
 
         try {
@@ -77,14 +98,13 @@ NodeSchema.methods.setParent = function (node: INode | null): Promise<INode | nu
             }
             (this.rootNode === this._id) ? await this.calibrateHeightRoot(this._id) : await this.calibrateHeightRoot();
             await session.commitTransaction();
-            session.endSession();
             resolve(parentNode);
         } catch (err) {
             console.error('Error saving files\n', err);
             await session.abortTransaction(); // Rollback
-            session.endSession();
             reject(err);
         }
+        session.endSession();
     });
 }
 
@@ -117,30 +137,111 @@ NodeSchema.methods.calibrateHeightRoot = function (root?: string): Promise<void>
     });
 }
 
-export const Node: Model<INode> = model<INode>("Node", NodeSchema);
+NodeSchema.statics.createNode = async function (description: string, parentNodeId: string | null): Promise<INode> {
+    return new Promise(async (resolve, reject) => {
+        let session: ClientSession = await Node.db.startSession();
+        session.startTransaction();
 
-export let swapParent = async function (childNodeId: string, parentNodeID: string | null): Promise<object> {
+        let node: INode = new Node();
+        node.description = description;
+        
+        try {
+            await node.setParent(parentNodeId);
+            let savedNode = await node.save();
+
+            if (!parentNodeId) {
+                let previousRoot: INode | null = await Node.findOne({parentNode: null});
+                if (previousRoot) {
+                    previousRoot.setParent(savedNode._id);
+                }
+            }
+            await session.commitTransaction();
+            resolve(savedNode);
+        } catch (err) {
+            console.error('Failed to save Node\n', err);
+            await session.abortTransaction();
+            reject({
+                error: 'Failed to create Node',
+                message: 'Connection to the database might be missing'
+            });
+        }
+        session.endSession();
+    });
+}
+
+NodeSchema.statics.deleteNode = async function (nodeId: string): Promise<INode> {
+    return new Promise(async (resolve, reject) => {
+        let session: ClientSession = await Node.db.startSession();
+        session.startTransaction();
+
+        try {
+            let node: INode | null = await Node.findById(nodeId);
+            let parentNode: INode | null = null;
+            if (node) {
+                if (node.rootNode === node._id) {
+                    reject({
+                        error: 'Illegal action!',
+                        message: 'Can\'t delete root node, make another node root first'
+                    });
+                    return;
+                }
+
+                const parentParentNodeId: string = node.parentNode;
+                if (parentParentNodeId) {
+                    parentNode = await Node.findById(parentParentNodeId);
+                    if (parentNode) {
+                        parentNode.removeChild(nodeId);
+                    }
+                }
+
+                node.children.forEach(async (childId: string) => {
+                    let child: INode | null = await Node.findById(childId);
+                    if (child) {
+                        await child.setParent(parentParentNodeId);
+                    }
+                });
+                
+                await node.remove();
+                if (parentNode) {
+                    await parentNode.save();
+                }
+                await session.commitTransaction();
+                resolve(node);
+            }
+        } catch (err) {
+            await session.abortTransaction();
+            console.warn('Failed to delete node\n', err);
+            reject({
+                error: 'Failed to delete node!',
+                message: 'Node could not be deleted'
+            });
+        }
+        session.endSession();
+    });
+}
+
+NodeSchema.statics.swapParent = async function (childNodeId: string, parentNodeId: string | null): Promise<object> {
     return new Promise(async (resolve, reject) => {
         try {
             let main: INode | null = await Node.findById(childNodeId);
             if (main) {
                 let result: any = {};
-
-                let parent: INode | null = (parentNodeID) ? await Node.findById(parentNodeID) : null;
-                let oldParent: INode | null = await main.setParent(parent);
+                let oldParent: INode | null = await main.setParent(parentNodeId);
                 
                 if (oldParent) {
                     result.oldParentNode = oldParent._id;
                 }
                 result.mainNode = main._id;
-                result.parentNode = (parent) ? parent._id : null;
+                result.parentNode = parentNodeId;
                 resolve(result);
+                return;
             }
             reject({
                 error: 'Node not found!',
                 message: 'childNodeId can\'t be found'
             });
         } catch (err) {
+            console.warn('Error in swapping parent\n', err);
             reject({
                 error: 'Failed to swap!',
                 message: 'Child or parent node does not exist'
@@ -148,3 +249,5 @@ export let swapParent = async function (childNodeId: string, parentNodeID: strin
         }
     });
 }
+
+export const Node = model<INode, INodeModel>("Node", NodeSchema);
