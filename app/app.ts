@@ -164,7 +164,11 @@ app.listen(PORT, async () => {
 });
 
 async function populateDatabase () {
-    Node.collection.drop();
+    try {
+        await Node.collection.drop();
+    } catch (err) {
+        console.warn('Collection doesn\'t exist. Not dropping database.');
+    }
 
     let root = new Node();
     root.description = 'root';

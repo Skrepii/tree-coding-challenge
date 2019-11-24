@@ -161,8 +161,8 @@ NodeSchema.statics.createNode = async function (description: string, parentNodeI
             console.error('Failed to save Node\n', err);
             await session.abortTransaction();
             reject({
-                error: 'Failed to create Node',
-                message: 'Connection to the database might be missing'
+                error: 'Failed to create Node!',
+                message: 'parentId not found'
             });
         }
         session.endSession();
@@ -207,6 +207,12 @@ NodeSchema.statics.deleteNode = async function (nodeId: string): Promise<INode> 
                 }
                 await session.commitTransaction();
                 resolve(node);
+            } else {
+                await session.abortTransaction();
+                reject({
+                    error: 'Failed to delete node!',
+                    message: 'Node was not found'
+                });
             }
         } catch (err) {
             await session.abortTransaction();
