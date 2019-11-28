@@ -1,5 +1,13 @@
 # Tree coding challenge
 
+Tree node structure written in TypeScript. Created with the use as an API, that's written on top of Node.js. Additionally everything is running from inside of Docker containers.
+
+## Testing
+
+Once a Docker image is built and the containers are started, the API container will run Jest tests to see whether the API commands are running properly. If tests will fail the container will fail to spin up. If the tests pass it will be ready to go!
+
+Make sure that the connection to the mongodb container is available!
+
 ## Setup guide
 
 1. Install [Docker](https://docs.docker.com/v17.09/engine/installation/#desktop)
@@ -280,3 +288,4 @@ If `childId` or `parentId` is in incorrect format then an error JSON will be sen
 - [MongoDB](https://www.mongodb.com/) - General purpose database
 - [Docker / Docker-compose](https://www.docker.com/) - Containerized development
 - [TypeScript](https://www.typescriptlang.org/) - Programming language (superset of JavaScript)
+- [Jest](https://jestjs.io/en/) - Javascript testing framework
