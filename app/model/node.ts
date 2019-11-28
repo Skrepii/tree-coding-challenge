@@ -1,14 +1,16 @@
 import { Document, Schema, model, Model, ClientSession } from "mongoose";
+import { rejects } from "assert";
+import { resolve } from "dns";
 
-interface INode extends Document {
+export interface INode extends Document {
     description: string;
     height: number;
 
     rootNode: string;
-    parentNode: string;
+    parentNode: string | null;
     children: string[];
 
-    setParent(nodeId: string | null): Promise<INode | null>;
+    setParent(nodeId?: string): Promise<INode>;
     removeChild(id: string): void;
     calibrateHeightRoot(root?: string): Promise<void>;
 }
@@ -27,39 +29,45 @@ const NodeSchema: Schema = new Schema({
     children: [{ type: Schema.Types.ObjectId, ref: 'Node' }]
 });
 
-NodeSchema.methods.setParent = function (nodeId: string | null): Promise<INode | null> {
+NodeSchema.methods.setParent = function (parentId?: string): Promise<INode> {
     return new Promise(async (resolve, reject) => {
 
-        let session: ClientSession = await Node.db.startSession();
-        session.startTransaction();
-
         let previousRoot: INode | null = null;
-        let parentNode: INode | null = null;
-        let node: INode | null = null;
+        let oldParentNode: INode | null = null;
+        let newParentNode: INode | null = null;
+        let parentParent: INode | null = null;
 
         if (this.parentNode) {
             try {
-                parentNode = await Node.findById(this.parentNode);   
-                if (parentNode) {
-                    parentNode.removeChild(this._id);
+                oldParentNode = await Node.findById(this.parentNode);   
+                if (oldParentNode) {
+                    oldParentNode.removeChild(this._id);
                 }
             } catch (err) {
-                console.warn('Failed to find parent node\n', err);
+                reject({
+                    error: 'Failed to find parent node!',
+                    message: 'parent node not found'
+                });
+                return;
             }        
         }
 
         // Check if the node we're changing to is null, if so then we set it as root
         // and add previous root as a child
-        if (!nodeId) {
+        if (!parentId) {
             try {
                 // Finding the previous root node
                 previousRoot = await Node.findById(this.rootNode);
-                if (previousRoot) {
+                if (previousRoot && previousRoot._id !== this._id) {
                     previousRoot.parentNode = this._id;
                     this.children.push(previousRoot._id);
                 }
             } catch (err) {
-                console.warn('Failed to find previous root node\n', err);
+                reject({
+                    error: 'Failed to find!',
+                    message: 'Something serious happened if you got here'
+                });
+                return;
             }
 
             this.parentNode = null;
@@ -67,19 +75,46 @@ NodeSchema.methods.setParent = function (nodeId: string | null): Promise<INode |
             this.rootNode = this._id;
         } else {
             try {
-                node = await Node.findById(nodeId);
-                if (node) {
-                    this.parentNode = node._id;
-                    this.height = node.height + 1;
-                    node.children.push(this._id);
+                newParentNode = await Node.findById(parentId);
+                if (newParentNode) {
+                    if (this.height >= 0 && this.height < newParentNode.height) {
+
+                        parentParent = await findChildParent(this as INode, parentId);
+                        if (parentParent) {
+                            if (parentParent.id == newParentNode.id) {
+                                parentParent = newParentNode;
+                            }
+
+                            parentParent.parentNode = this.parentNode;
+                            if (oldParentNode) {
+                                oldParentNode.children.push(parentParent.id);
+                                parentParent.rootNode = oldParentNode.rootNode;
+                            } else {
+                                parentParent.rootNode = parentParent.id;
+                            }
+
+                            parentParent.height = this.height;
+                            this.removeChild(parentParent.id);
+                        }
+                        
+                        newParentNode.height = this.height;
+                    }
+
+                    newParentNode.children.push(this.id);
+                    this.parentNode = newParentNode.id;
+                    this.height = newParentNode.height + 1;
+                    this.rootNode = newParentNode.rootNode;
+                } else {
+                    reject({
+                        error: 'Failed to find Node!',
+                        message: 'parentId not found'
+                    });
+                    return;
                 }
             } catch (err) {
-                console.error('Failed to find new parent node\n', err);
-                await session.abortTransaction();
-                session.endSession();
                 reject({
-                    error: 'Failed to find!',
-                    message: 'Failed to find node with id of nodeId'
+                    error: 'Failed to find Node!',
+                    message: 'Incorrect parentId format'
                 });
                 return;
             }
@@ -87,96 +122,62 @@ NodeSchema.methods.setParent = function (nodeId: string | null): Promise<INode |
 
         try {
             await this.save();
-            if (node) {
-                await node.save();
+
+            if (parentParent) {
+                parentParent = await parentParent.save();
             }
-            if (parentNode) {
-                await parentNode.save();
+            if (newParentNode) {
+                newParentNode = await newParentNode.save();
+            }
+            if (oldParentNode) {
+                oldParentNode = await oldParentNode.save();
             }
             if (previousRoot) {
-                await previousRoot.save();
+                previousRoot = await previousRoot.save();
             }
-            (this.rootNode === this._id) ? await this.calibrateHeightRoot(this._id) : await this.calibrateHeightRoot();
-            await session.commitTransaction();
-            resolve(parentNode);
+            (parentParent) ? await heightRoot(parentParent) : (newParentNode) ? await heightRoot(newParentNode) : await heightRoot(this as INode);
+            resolve(this as INode);
         } catch (err) {
-            console.error('Error saving files\n', err);
-            await session.abortTransaction(); // Rollback
             reject(err);
         }
-        session.endSession();
     });
 }
 
 NodeSchema.methods.removeChild = function (id: string) {
-    const index = this.children.findIndex((childid: string) => childid === id);
-    this.children.splice(index, 1);
-}
-
-NodeSchema.methods.calibrateHeightRoot = function (root?: string): Promise<void> {
-    let recursiveSearch = async function (nodeID: string, height: number, root?: string): Promise<number> {
-        return new Promise(async (resolve) => {
-            let node: INode | null = await Node.findById(nodeID);
-            if (node) {
-                if (root) {
-                    node.rootNode = root;
-                }
-                node.height = height;
-                node.children.forEach(async (childID) => {
-                    await recursiveSearch(childID, height + 1, root); 
-                });
-                await node.save();
-                resolve();
-            }
-        });
+    const index = this.children.findIndex((childid: string) => childid == id);
+    if (index > -1) {
+        this.children.splice(index, 1);
     }
-    
-    return new Promise(async (resolve) => {
-        await recursiveSearch(this._id, this.height, root);
-        resolve();
-    });
 }
 
-NodeSchema.statics.createNode = async function (description: string, parentNodeId: string | null): Promise<INode> {
+NodeSchema.statics.createNode = async function (description: string, parentNodeId?: string): Promise<INode> {
     return new Promise(async (resolve, reject) => {
-        let session: ClientSession = await Node.db.startSession();
-        session.startTransaction();
-
-        let node: INode = new Node();
-        node.description = description;
-        
+        let newNode: INode = new Node();
+        newNode.description = description;
         try {
-            await node.setParent(parentNodeId);
-            let savedNode = await node.save();
-
-            if (!parentNodeId) {
-                let previousRoot: INode | null = await Node.findOne({parentNode: null});
-                if (previousRoot) {
-                    previousRoot.setParent(savedNode._id);
-                }
-            }
-            await session.commitTransaction();
-            resolve(savedNode);
+            resolve(await newNode.setParent(parentNodeId));
         } catch (err) {
-            console.error('Failed to save Node\n', err);
-            await session.abortTransaction();
-            reject({
-                error: 'Failed to create Node!',
-                message: 'parentId not found'
-            });
+            reject(err);
         }
-        session.endSession();
     });
 }
 
-NodeSchema.statics.deleteNode = async function (nodeId: string): Promise<INode> {
+NodeSchema.statics.deleteNode = async function (id: string): Promise<INode> {
     return new Promise(async (resolve, reject) => {
-        let session: ClientSession = await Node.db.startSession();
-        session.startTransaction();
+        let node: INode | null = null;
+        let parentNode: INode | null = null;
 
         try {
-            let node: INode | null = await Node.findById(nodeId);
-            let parentNode: INode | null = null;
+            node = await Node.findById(id);
+        } catch (err) {
+            reject({
+                error: 'Failed to find Node!',
+                message: 'Incorrect id format'
+            });
+            return;
+        }
+
+        try {
             if (node) {
                 if (node.rootNode === node._id) {
                     reject({
@@ -186,60 +187,47 @@ NodeSchema.statics.deleteNode = async function (nodeId: string): Promise<INode> 
                     return;
                 }
 
-                const parentParentNodeId: string = node.parentNode;
+                const parentParentNodeId: string | null = node.parentNode;
                 if (parentParentNodeId) {
                     parentNode = await Node.findById(parentParentNodeId);
                     if (parentNode) {
-                        parentNode.removeChild(nodeId);
+                        parentNode.removeChild(id);
                     }
-                }
 
-                node.children.forEach(async (childId: string) => {
-                    let child: INode | null = await Node.findById(childId);
-                    if (child) {
-                        await child.setParent(parentParentNodeId);
-                    }
-                });
+                    node.children.forEach(async (childId: string) => {
+                        let child: INode | null = await Node.findById(childId);
+                        if (child) {
+                            await child.setParent(parentParentNodeId);
+                        }
+                    });
+                }
                 
                 await node.remove();
                 if (parentNode) {
                     await parentNode.save();
                 }
-                await session.commitTransaction();
                 resolve(node);
             } else {
-                await session.abortTransaction();
                 reject({
                     error: 'Failed to delete node!',
                     message: 'Node was not found'
                 });
             }
         } catch (err) {
-            await session.abortTransaction();
-            console.warn('Failed to delete node\n', err);
             reject({
                 error: 'Failed to delete node!',
                 message: 'Node could not be deleted'
             });
         }
-        session.endSession();
     });
 }
 
-NodeSchema.statics.swapParent = async function (childNodeId: string, parentNodeId: string | null): Promise<object> {
+NodeSchema.statics.swapParent = async function (childNodeId: string, parentNodeId?: string ): Promise<object> {
     return new Promise(async (resolve, reject) => {
         try {
-            let main: INode | null = await Node.findById(childNodeId);
-            if (main) {
-                let result: any = {};
-                let oldParent: INode | null = await main.setParent(parentNodeId);
-                
-                if (oldParent) {
-                    result.oldParentNode = oldParent._id;
-                }
-                result.mainNode = main._id;
-                result.parentNode = parentNodeId;
-                resolve(result);
+            let childNode: INode | null = await Node.findById(childNodeId);
+            if (childNode) {
+                resolve(await childNode.setParent(parentNodeId));
                 return;
             }
             reject({
@@ -247,13 +235,61 @@ NodeSchema.statics.swapParent = async function (childNodeId: string, parentNodeI
                 message: 'childNodeId can\'t be found'
             });
         } catch (err) {
-            console.warn('Error in swapping parent\n', err);
-            reject({
-                error: 'Failed to swap!',
-                message: 'Child or parent node does not exist'
-            });
+            reject(err);
         }
     });
 }
 
 export const Node = model<INode, INodeModel>("Node", NodeSchema);
+
+async function recursiveHeightRoot(nodeId: string, height: number, root: string): Promise<void> {
+    return new Promise(async (resolve, reject) => {
+        try {
+            let node: INode | null = await Node.findById(nodeId);
+            if (node) {
+                node.rootNode = root;
+                node.height = height;
+                await node.save();
+                
+                if (node.children.length < 1) {
+                    resolve();
+                }
+                await Promise.all(node.children.map(async (childId) => await recursiveHeightRoot(childId.toString(), height + 1, root))).then(() => {resolve()});
+            }
+        } catch (err) {
+            reject(err);
+        }
+    });
+}
+
+export async function heightRoot(node: INode) {
+    await recursiveHeightRoot(node.id, node.height, node.rootNode);
+}
+
+async function recursiveFindChildParent(currentNode: string, childNode: string): Promise<INode | null> {
+    return new Promise(async (resolve, reject) => {
+        try {
+            let node: INode | null = await Node.findById(childNode);
+            if (node) {
+                // need to use toString() to 
+                if (node.parentNode && node.parentNode.toString() == currentNode) {
+                    resolve(node);
+                    return;
+                }
+
+                if (!node.parentNode) {
+                    resolve(null);
+                    return;
+                }
+
+                resolve(await recursiveFindChildParent(currentNode, node.parentNode));
+            }
+        } catch (err) {
+            reject(err);
+        }
+    });
+}
+
+export async function findChildParent(node: INode, childNode: string): Promise<INode | null> {
+    return await recursiveFindChildParent(node.id, childNode);
+}

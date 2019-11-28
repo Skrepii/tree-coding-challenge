@@ -1,8 +1,9 @@
 import express, { Request, Response, Application } from 'express';
-import { Node } from './model/node';
+import { Node, heightRoot } from './model/node';
 import mongoose = require('mongoose');
+import { sessionalize } from './helpers';
 
-const app: Application = express();
+export const app: Application = express();
 const PORT = process.env.PORT || 8080;
 const mongoURL = process.env.MONGOURL || 'mongodb://mongo:27017/mongo';
 
@@ -79,7 +80,7 @@ app.post('/node', async (req: Request, res: Response) => {
     }
 
     try {
-        res.json(await Node.createNode(description, parentId));
+        res.json(await sessionalize(Node.createNode, description, parentId));
     } catch (err) {
         res.status(400).json(err);
     }
@@ -101,17 +102,17 @@ app.post('/node', async (req: Request, res: Response) => {
         during a delete an error message will be returned
 */
 app.delete('/node', async (req: Request, res: Response) => {
-    const { nodeId } = req.body;
-    if (!nodeId) {
+    const { id } = req.body;
+    if (!id) {
         res.status(400).json({
             error: 'Missing parameters!',
-            message: 'Make sure that key \'nodeId\' is specified'
+            message: 'Make sure that key \'id\' is specified'
         });
         return;
     }
 
     try {
-        res.json(await Node.deleteNode(nodeId));
+        res.json(await sessionalize(Node.deleteNode, id));
     } catch (err) {
         res.status(400).json(err);
     }
@@ -134,7 +135,7 @@ app.delete('/node', async (req: Request, res: Response) => {
     - If one of the nodes will not be found or incorrect id format will be given 
         during a swap an error message will be returned
 */
-app.post('/node/swap', async (req: Request, res: Response) => {
+app.put('/node', async (req: Request, res: Response) => {
     const { childId, parentId } = req.body;
     if (!childId) {
         res.status(400).json({
@@ -145,22 +146,24 @@ app.post('/node/swap', async (req: Request, res: Response) => {
     }
 
     try {
-        res.json(await Node.swapParent(childId, parentId));
+        res.json(await sessionalize(Node.swapParent, childId, parentId));
     } catch (err) {
         res.status(400).json(err);
     }
 });
 
-app.listen(PORT, async () => {
-    try {
-        await mongoose.connect(mongoURL, { useNewUrlParser: true, useUnifiedTopology: true });
-        if (process.env.POPULATE_DB === 'true') {
-            await populateDatabase();
+export let server = app.listen(PORT, async () => {
+    if (process.env.NODE_ENV != 'test') {
+        try {
+            await mongoose.connect(mongoURL, { useNewUrlParser: true, useUnifiedTopology: true });
+            if (process.env.POPULATE_DB === 'true') {
+                await sessionalize(populateDatabase);
+            }
+        } catch (err) {
+            console.error('Failed to connect to mongoDB server\n', err);
         }
-    } catch (err) {
-        console.error('Failed to connect to mongoDB server\n', err);
+        console.log('Listening on port:', PORT);
     }
-    console.log('Listening on port:', PORT)
 });
 
 async function populateDatabase () {
@@ -173,7 +176,7 @@ async function populateDatabase () {
     let root = new Node();
     root.description = 'root';
     root.height = 0;
-    await root.save();
+    root = await root.setParent();
 
     let node_1 = new Node();
     node_1.description = 'a';
@@ -184,11 +187,11 @@ async function populateDatabase () {
     let node_3 = new Node();
     node_3.description = 'd';
 
-    await node_1.setParent(root._id);
-    await node_2.setParent(node_1._id);
-    await node_3.setParent(node_2._id);
+    await node_1.setParent(root.id);
+    await node_2.setParent(node_1.id);
+    await node_3.setParent(node_2.id);
     
-    await root.calibrateHeightRoot(root._id);
+    await heightRoot(root);
 
     console.log('Database populated...');
 }
