@@ -1,6 +1,4 @@
-import { Document, Schema, model, Model, ClientSession } from "mongoose";
-import { rejects } from "assert";
-import { resolve } from "dns";
+import { Document, Schema, model, Model } from "mongoose";
 
 export interface INode extends Document {
     description: string;
@@ -42,11 +40,17 @@ NodeSchema.methods.setParent = function (parentId?: string): Promise<INode> {
                 oldParentNode = await Node.findById(this.parentNode);   
                 if (oldParentNode) {
                     oldParentNode.removeChild(this._id);
+                } else {
+                    reject({
+                        error: 'Failed to find parent node!',
+                        message: 'parent node not found'
+                    });
+                    return;
                 }
             } catch (err) {
                 reject({
                     error: 'Failed to find parent node!',
-                    message: 'parent node not found'
+                    message: 'Incorrect id format'
                 });
                 return;
             }        
@@ -57,7 +61,7 @@ NodeSchema.methods.setParent = function (parentId?: string): Promise<INode> {
         if (!parentId) {
             try {
                 // Finding the previous root node
-                previousRoot = await Node.findById(this.rootNode);
+                previousRoot = await Node.findOne({parentNode: null});
                 if (previousRoot && previousRoot._id !== this._id) {
                     previousRoot.parentNode = this._id;
                     this.children.push(previousRoot._id);
@@ -145,9 +149,7 @@ NodeSchema.methods.setParent = function (parentId?: string): Promise<INode> {
 
 NodeSchema.methods.removeChild = function (id: string) {
     const index = this.children.findIndex((childid: string) => childid == id);
-    if (index > -1) {
-        this.children.splice(index, 1);
-    }
+    this.children.splice(index, 1);
 }
 
 NodeSchema.statics.createNode = async function (description: string, parentNodeId?: string): Promise<INode> {
@@ -179,7 +181,7 @@ NodeSchema.statics.deleteNode = async function (id: string): Promise<INode> {
 
         try {
             if (node) {
-                if (node.rootNode === node._id) {
+                if (node.rootNode.toString() == node._id) {
                     reject({
                         error: 'Illegal action!',
                         message: 'Can\'t delete root node, make another node root first'
@@ -222,7 +224,7 @@ NodeSchema.statics.deleteNode = async function (id: string): Promise<INode> {
     });
 }
 
-NodeSchema.statics.swapParent = async function (childNodeId: string, parentNodeId?: string ): Promise<object> {
+NodeSchema.statics.swapParent = async function (childNodeId: string, parentNodeId?: string ): Promise<INode> {
     return new Promise(async (resolve, reject) => {
         try {
             let childNode: INode | null = await Node.findById(childNodeId);
@@ -235,6 +237,13 @@ NodeSchema.statics.swapParent = async function (childNodeId: string, parentNodeI
                 message: 'childNodeId can\'t be found'
             });
         } catch (err) {
+            if (err.name) {
+                reject({
+                    error: 'Node not found!',
+                    message: 'Incorrect childId format'
+                });
+                return;
+            }
             reject(err);
         }
     });

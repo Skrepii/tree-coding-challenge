@@ -1,11 +1,11 @@
 import mongoose = require('mongoose');
-import { ObjectId, IndexOptions } from 'mongodb';
-import request from 'supertest';
+import { ObjectId } from 'mongodb';
 import { server } from '../app';
 import { Node, INode } from '../model/node';
 import { sessionalize } from '../helpers';
+import { doesNotReject } from 'assert';
 
-describe('API', () => {
+describe('Node', () => {
 
     beforeAll(async () => {
         const url = 'mongodb://mongo:27017/test';
@@ -35,284 +35,251 @@ describe('API', () => {
         }
     });
 
-    describe('/node', () => {
+    describe('Node', () => {
 
-        describe('GET', () => {
-    
-            test('should find a node with an id', async (done) => {
+        describe('createNode', () => {
+
+            test('should create a node', async (done) => {
                 let description: string = 'Simple Node';
-
+    
                 try {
                     const {id} = await sessionalize(Node.createNode, description);
-
-                    const res = await request(server)
-                    .get(`/node?id=${id}`);
-
-                    expect(res.status).toBe(200);
-                    expect(res.body.description).toBe(description);
-                    expect(res.body._id).toBe(id);
-
+                    let node: INode | null = await Node.findById(id);
+                    expect(node).not.toBeNull();
+                    if (node) {
+                        expect(node.id.toString()).toBe(id);
+                        expect(node.description).toBe(description);
+                        expect(node.rootNode.toString()).toBe(id);
+                        expect(node.parentNode).toBeNull();
+                        expect(node.height).toBe(0);
+                    }
+    
                 } catch (err) {
                     fail(err);
                 }
                 done();
             });
-
-            test('should return null if a node with id was not found', async (done) => {
-                const randomid = new ObjectId().toHexString();
-                
+    
+            test('should create two nodes and make the second one as root', async (done) => {
+                let description_1: string = 'Simple Node';
+                let description_2: string = 'New Root Node';
+    
                 try {
-                    const res = await request(server)
-                    .get(`/node?id=${randomid}`);
-
-                    expect(res.status).toBe(200);
-                    expect(res.body).toBeNull();
+                    const {id: id_1} = await sessionalize(Node.createNode, description_1);
+                    const {id: id_2} = await sessionalize(Node.createNode, description_2);
+    
+                    let node_1: INode | null = await Node.findById(id_1);
+                    let node_2: INode | null = await Node.findById(id_2);
+    
+                    expect(node_1).not.toBeNull();
+                    expect(node_2).not.toBeNull();
+    
+                    if (node_1 && node_2) {
+                        expect(node_1.id.toString()).toBe(id_1);
+                        expect(node_2.id.toString()).toBe(id_2);
+    
+                        expect(node_1.description).toBe(description_1);
+                        expect(node_2.description).toBe(description_2);
+    
+                        expect(node_1.rootNode.toString()).toBe(id_2);
+                        expect(node_2.rootNode.toString()).toBe(id_2);
+    
+                        expect(node_1.parentNode).not.toBeNull();
+                        if (node_1.parentNode) {
+                            expect(node_1.parentNode.toString()).toBe(id_2);
+                        }
+                        expect(node_2.parentNode).toBeNull();
+    
+                        expect(node_1.height).toBe(1);
+                        expect(node_2.height).toBe(0);
+                    }
+    
                 } catch (err) {
                     fail(err);
                 }
                 done();
             });
-
-            test('should fail on incorrect id format', async (done) => {
-                let description: string = 'Simple Node';
-                let badId: string = 'h2hs5';
-
+    
+            test('should create two nodes and make the second one as root using a parentId parameter', async (done) => {
+                let description_1: string = 'Simple Node';
+                let description_2: string = 'New Root Node';
+    
                 try {
-                    await sessionalize(Node.createNode, description);
-
-                    const res = await request(server)
-                    .get(`/node?id=${badId}`);
-
-                    expect(res.status).toBe(400);
-                    expect(res.body.error).toBe('Failed to find!');
-                    expect(res.body.message).toBe('Incorrect id format');
-
-                } catch (err) {
-                    fail(err);
-                }
-                done();
-            });
-            
-            test('should fail on missing id', async (done) => {
-                let description: string = 'Simple Node';
-
-                try {
-                    await sessionalize(Node.createNode, description);
-                    const res = await request(server)
-                    .get(`/node`);
-
-                    expect(res.status).toBe(400);
-                    expect(res.body.error).toBe('Missing parameters!');
-                    expect(res.body.message).toBe('Make sure that key \'id\' is specified');
-
+                    const {id: id_2} = await sessionalize(Node.createNode, description_2);
+                    const {id: id_1} = await sessionalize(Node.createNode, description_1, id_2);
+    
+                    let node_1: INode | null = await Node.findById(id_1);
+                    let node_2: INode | null = await Node.findById(id_2);
+    
+                    expect(node_1).not.toBeNull();
+                    expect(node_2).not.toBeNull();
+    
+                    if (node_1 && node_2) {
+                        expect(node_1.id.toString()).toBe(id_1);
+                        expect(node_2.id.toString()).toBe(id_2);
+    
+                        expect(node_1.description).toBe(description_1);
+                        expect(node_2.description).toBe(description_2);
+    
+                        expect(node_1.rootNode.toString()).toBe(id_2);
+                        expect(node_2.rootNode.toString()).toBe(id_2);
+    
+                        expect(node_1.parentNode).not.toBeNull();
+                        if (node_1.parentNode) {
+                            expect(node_1.parentNode.toString()).toBe(id_2);
+                        }
+                        expect(node_2.parentNode).toBeNull();
+    
+                        expect(node_1.height).toBe(1);
+                        expect(node_2.height).toBe(0);
+                    }
+    
                 } catch (err) {
                     fail(err);
                 }
                 done();
             });
         });
+        
+        describe('deleteNode', () => {
 
-        describe('POST', () => {
-    
-            test('should create a node with description', async (done) => {
-                const value: string = 'Simple Node';
-                try {
-                    const res = await request(server)
-                    .post('/node')
-                    .send({
-                        description: value
-                    });
-    
-                    expect(res.status).toBe(200);
-                    expect(res.body.description).toBe(value);
-                    
-                } catch (err) {
-                    fail(err);
-                }
-                done();
-            });
-    
-            test('should fail on a incorrect parentId format', async (done) => {
-                const value: string = 'Simple Node';
-                const randomId: string = new ObjectId().toHexString().slice(0, 5);
-                
-                try {
-                    const res = await request(server)
-                    .post('/node')
-                    .send({
-                        description: value,
-                        parentId: randomId
-                    });
+            test('should delete a node with a given id', async (done) => {
+                const description_1: string = 'Simple Node';
+                const description_2: string = 'Root Node';
 
-                    expect(res.status).toBe(400);
-                    expect(res.body.error).toBe('Failed to find Node!');
-                    expect(res.body.message).toBe('Incorrect parentId format');
-                    
+                try {
+                    const {id: id_2} = await sessionalize(Node.createNode, description_2)
+                    const {id: id_1} = await sessionalize(Node.createNode, description_1, id_2);
+
+
+                    let node = await sessionalize(Node.deleteNode, id_1);
+
+                    let node_1 = await Node.findById(id_1);
+                    let node_2 = await Node.findById(id_2);
+
+                    expect(node.id.toString()).toBe(id_1);
+                    expect(node_1).toBeNull();
+                    expect(node_2).not.toBeNull();
+                    if (node_2) {
+                        expect(node_2.children.map((val) => val.toString())).not.toContain(id_1);
+                    }
                 } catch (err) {
                     fail(err);
                 }
                 done();
             });
 
-            test('should fail on a non-existing parent id', async (done) => {
-                const value: string = 'Simple Node';
+            test('should fail on deleting a root node', async (done) => {
+                let description: string = 'Simple Node';
+                try {
+                    const {id} = await sessionalize(Node.createNode, description);
+                    let node: INode | null = await Node.findById(id);
+    
+                    expect(node).not.toBeNull();
+    
+                    try {
+                        node = await sessionalize(Node.deleteNode, id);
+                        fail('Didn\'t trigger error');
+                    } catch (err) {
+                        expect(err).not.toBeNull();
+                        if (err) {
+                            expect(err.error).toBe('Illegal action!');
+                            expect(err.message).toBe('Can\'t delete root node, make another node root first');
+                        }
+                    }
+                } catch (err) {
+                    fail(err);
+                }
+                done();
+            });
+
+            test('should fail on deleting a non-existing node', async (done) => {
                 const randomId: string = new ObjectId().toHexString();
-                
                 try {
-                    const res = await request(server)
-                    .post('/node')
-                    .send({
-                        description: value,
-                        parentId: randomId
-                    });
-
-                    expect(res.status).toBe(400);
-                    expect(res.body.error).toBe('Failed to find Node!');
-                    expect(res.body.message).toBe('parentId not found');
-                    
+                    await sessionalize(Node.createNode, 'Simple Node');
+                    try {
+                        await sessionalize(Node.deleteNode, randomId);
+                        fail('Didn\'t trigger error');
+                    } catch (err) {
+                        expect(err).not.toBeNull();
+                        if (err) {
+                            expect(err.error).toBe('Failed to delete node!');
+                            expect(err.message).toBe('Node was not found');
+                        }
+                    }
                 } catch (err) {
                     fail(err);
                 }
                 done();
             });
 
-            test('should fail on missing description', async (done) => {
+            test('should fail on trying to delete a fake id', async (done) => {
+                const randomId: string = 'e2e2fde';
                 try {
-                    const res = await request(server).post('/node');
-    
-                    expect(res.status).toBe(400);
-                    expect(res.body.error).toBe('Missing parameters!');
-
+                    await sessionalize(Node.createNode, 'Simple Node');
+                    try {
+                        await sessionalize(Node.deleteNode, randomId);
+                        fail('Didn\'t trigger error');
+                    } catch (err) {
+                        expect(err).not.toBeNull();
+                        if (err) {
+                            expect(err.error).toBe('Failed to find Node!');
+                            expect(err.message).toBe('Incorrect id format');
+                        }
+                    }
                 } catch (err) {
                     fail(err);
                 }
                 done();
             });
-    
-        });
-    
-        describe('DELETE', () => {
-    
-            test('should delete a node with id', async (done) => {
-                const description: string = 'Simple Node';
-                try {
-                    const {id} = await sessionalize(Node.createNode, description);
-
-                    const res = await request(server)
-                    .delete('/node')
-                    .send({
-                        id
-                    });
-    
-                    expect(res.status).toBe(200);
-                    expect(res.body.description).toBe(description);
-                    expect(res.body._id).toBe(id);
-                    
-                } catch (err) {
-                    fail(err);
-                }
-                done();
-            });
-
-            test('should fail on a incorrect id format', async (done) => {
-                try {
-                    const id: string = new ObjectId().toHexString().slice(0, 5);
-
-                    const res = await request(server)
-                    .delete('/node')
-                    .send({
-                        id
-                    });
-    
-                    expect(res.status).toBe(400);
-                    expect(res.body.error).toBe('Failed to find Node!');
-                    expect(res.body.message).toBe('Incorrect id format');
-                    
-                } catch (err) {
-                    fail(err);
-                }
-                done();
-            });
-
-            test('should fail on non-existant node id', async (done) => {
-                try {
-                    const id: string = new ObjectId().toHexString();
-
-                    const res = await request(server)
-                    .delete('/node')
-                    .send({
-                        id
-                    });
-
-                    expect(res.status).toBe(400);
-                    expect(res.body.error).toBe('Failed to delete node!');
-                    expect(res.body.message).toBe('Node was not found');
-                    
-                } catch (err) {
-                    fail(err);
-                }
-                done();
-            });
-
-            test('should fail on missing id', async (done) => {
-                try {
-                    const res = await request(server).delete('/node');
-    
-                    expect(res.status).toBe(400);
-                    expect(res.body.error).toBe('Missing parameters!');
-
-                } catch (err) {
-                    fail(err);
-                }
-                done();
-            });
-    
         });
 
-        describe('PUT', () => {
+        describe('swapParent', () => {
 
-            test('should swap the node with a new parent', async (done) => {
+            test('should swap a node with a new parent', async (done) => {
                 try {
                     let node_1: INode | null = await sessionalize(Node.createNode, 'Root Node');
                     let node_2: INode | null = await sessionalize(Node.createNode, 'Child Node', node_1.id);
                     let node_3: INode | null = await sessionalize(Node.createNode, 'Lower Child Node', node_2.id);
 
+                    await sessionalize(Node.swapParent, node_3.id, node_1.id);
+
                     node_1 = await Node.findById(node_1.id);
                     node_2 = await Node.findById(node_2.id);
-
+                    node_3 = await Node.findById(node_3.id);
+                    
                     expect(node_1).not.toBeNull();
                     expect(node_2).not.toBeNull();
                     expect(node_3).not.toBeNull();
 
-                    if (node_1 && node_2 && node_3 
-                        && node_1.children && node_2.children
-                        && node_2.parentNode && node_3.parentNode) {
-                        expect(node_1.parentNode).toBeNull();
-                        expect(node_2.parentNode.toString()).toBe(node_1.id);
-                        expect(node_3.parentNode.toString()).toBe(node_2.id);
+                    if (node_1 && node_2 && node_3) {
 
                         expect(node_1.height).toBe(0);
                         expect(node_2.height).toBe(1);
-                        expect(node_3.height).toBe(2);
+                        expect(node_3.height).toBe(1);
 
-                        // Need to specify toString() to not trigger 'serializes to the same string error'
                         expect(node_1.children.map((val) => val.toString())).toContain(node_2.id);
-                        expect(node_2.children.map((val) => val.toString())).toContain(node_3.id);
+                        expect(node_1.children.map((val) => val.toString())).toContain(node_3.id);
+                        expect(node_2.children.map((val) => val.toString())).not.toContain(node_3.id);
 
-                        const res = await request(server)
-                        .put('/node')
-                        .send({
-                            childId: node_3.id,
-                            parentId: node_1.id
-                        });
+                        expect(node_1.parentNode).toBeNull();
+                        expect(node_2.parentNode).not.toBeNull();
+                        expect(node_3.parentNode).not.toBeNull();
 
-                        expect(res.status).toBe(200);
-                        expect(res.body._id.toString()).toBe(node_3.id);
-                        expect(res.body.height).toBe(1);
-                        expect(res.body.parentNode.toString()).toBe(node_1.id);
-                        expect(res.body.rootNode.toString()).toBe(node_1.id);
-                    } else {
-                        fail('Node not found');
+                        if (node_2.parentNode && node_3.parentNode) {
+                            expect(node_2.parentNode.toString()).toBe(node_1.id);
+                            expect(node_3.parentNode.toString()).toBe(node_1.id);
+                        }
+
+                        expect(node_1.rootNode).not.toBeNull();
+                        expect(node_2.rootNode).not.toBeNull();
+                        expect(node_3.rootNode).not.toBeNull();
+
+                        if (node_1.rootNode && node_2.rootNode && node_3.rootNode) {
+                            expect(node_1.rootNode.toString()).toBe(node_1.id);
+                            expect(node_2.rootNode.toString()).toBe(node_1.id);
+                            expect(node_3.rootNode.toString()).toBe(node_1.id);
+                        }
                     }
                 } catch (err) {
                     fail(err);
@@ -322,34 +289,39 @@ describe('API', () => {
 
             test('should swap the node with a new parent if node is root', async (done) => {
                 try {
-                    let node_1: INode | null = await sessionalize(Node.createNode, 'Child Node');
-                    let node_2: INode | null = await sessionalize(Node.createNode, 'Root Node', node_1.id);
+                    let node_1: INode | null = await sessionalize(Node.createNode, 'Root Node');
+                    let node_2: INode | null = await sessionalize(Node.createNode, 'Child Node', node_1.id);
+
+                    await sessionalize(Node.swapParent, node_1.id, node_2.id);
 
                     node_1 = await Node.findById(node_1.id);
-
+                    node_2 = await Node.findById(node_2.id);
+                    
                     expect(node_1).not.toBeNull();
                     expect(node_2).not.toBeNull();
 
-                    if (node_1 && node_2 && node_2.parentNode) {
-                        expect(node_1.height).toBe(0);
-                        expect(node_2.height).toBe(1);
+                    if (node_1 && node_2) {
 
-                        // Need to specify toString() to not trigger 'serializes to the same string error'
-                        expect(node_1.children.map((val) => val.toString())).toContain(node_2.id);
-                        expect(node_2.parentNode.toString()).toBe(node_1.id);
+                        expect(node_1.height).toBe(1);
+                        expect(node_2.height).toBe(0);
 
-                        const res = await request(server)
-                        .put('/node')
-                        .send({
-                            childId: node_1.id,
-                            parentId: node_2.id
-                        });
+                        expect(node_1.children.map((val) => val.toString())).not.toContain(node_2.id);
+                        expect(node_2.children.map((val) => val.toString())).toContain(node_1.id);
 
-                        expect(res.status).toBe(200);
-                        expect(res.body._id.toString()).toBe(node_1.id);
-                        expect(res.body.height).toBe(1);
-                        expect(res.body.parentNode.toString()).toBe(node_2.id);
-                        expect(res.body.rootNode.toString()).toBe(node_2.id);
+                        expect(node_1.parentNode).not.toBeNull();
+                        expect(node_2.parentNode).toBeNull();
+
+                        if (node_1.parentNode) {
+                            expect(node_1.parentNode.toString()).toBe(node_2.id);
+                        }
+
+                        expect(node_1.rootNode).not.toBeNull();
+                        expect(node_2.rootNode).not.toBeNull();
+
+                        if (node_1.rootNode && node_2.rootNode) {
+                            expect(node_1.rootNode.toString()).toBe(node_2.id);
+                            expect(node_2.rootNode.toString()).toBe(node_2.id);
+                        }
                     }
                 } catch (err) {
                     fail(err);
@@ -357,42 +329,50 @@ describe('API', () => {
                 done();
             });
 
-            test('should swap the node with a new parent if node is root', async (done) => {
+            test('should swap the node with a new parent if node is root and it\'s child is the new root', async (done) => {
                 try {
                     let node_1: INode | null = await sessionalize(Node.createNode, 'Child Node');
                     let node_2: INode | null = await sessionalize(Node.createNode, 'Root Node', node_1.id);
                     let node_3: INode | null = await sessionalize(Node.createNode, 'Child Child Node', node_1.id);
 
-                    node_1 = await Node.findById(node_1.id);
+                    await sessionalize(Node.swapParent, node_1.id, node_2.id);
 
+                    node_1 = await Node.findById(node_1.id);
+                    node_2 = await Node.findById(node_2.id);
+                    node_3 = await Node.findById(node_3.id);
+                    
                     expect(node_1).not.toBeNull();
                     expect(node_2).not.toBeNull();
                     expect(node_3).not.toBeNull();
 
-                    if (node_1 && node_2 && node_3 
-                        && node_2.parentNode && node_3.parentNode) {
-                        expect(node_1.height).toBe(0);
-                        expect(node_2.height).toBe(1);
-                        expect(node_3.height).toBe(1);
+                    if (node_1 && node_2 && node_3) {
 
-                        // Need to specify toString() to not trigger 'serializes to the same string error'
-                        expect(node_1.children.map((val) => val.toString())).toContain(node_2.id);
+                        expect(node_1.height).toBe(1);
+                        expect(node_2.height).toBe(0);
+                        expect(node_3.height).toBe(2);
+
                         expect(node_1.children.map((val) => val.toString())).toContain(node_3.id);
-                        expect(node_2.parentNode.toString()).toBe(node_1.id);
-                        expect(node_3.parentNode.toString()).toBe(node_1.id);
+                        expect(node_1.children.map((val) => val.toString())).not.toContain(node_2.id);
+                        expect(node_2.children.map((val) => val.toString())).toContain(node_1.id);
 
-                        const res = await request(server)
-                        .put('/node')
-                        .send({
-                            childId: node_1.id,
-                            parentId: node_2.id
-                        });
-                        
-                        expect(res.status).toBe(200);
-                        expect(res.body._id.toString()).toBe(node_1.id);
-                        expect(res.body.height).toBe(1);
-                        expect(res.body.parentNode.toString()).toBe(node_2.id);
-                        expect(res.body.rootNode.toString()).toBe(node_2.id);
+                        expect(node_1.parentNode).not.toBeNull();
+                        expect(node_2.parentNode).toBeNull();
+                        expect(node_3.parentNode).not.toBeNull();
+
+                        if (node_1.parentNode && node_3.parentNode) {
+                            expect(node_1.parentNode.toString()).toBe(node_2.id);
+                            expect(node_3.parentNode.toString()).toBe(node_1.id);
+                        }
+
+                        expect(node_1.rootNode).not.toBeNull();
+                        expect(node_2.rootNode).not.toBeNull();
+                        expect(node_3.rootNode).not.toBeNull();
+
+                        if (node_1.rootNode && node_2.rootNode && node_3.rootNode) {
+                            expect(node_1.rootNode.toString()).toBe(node_2.id);
+                            expect(node_2.rootNode.toString()).toBe(node_2.id);
+                            expect(node_3.rootNode.toString()).toBe(node_2.id);
+                        }
                     }
                 } catch (err) {
                     fail(err);
@@ -400,26 +380,72 @@ describe('API', () => {
                 done();
             });
 
-            test('should fail on missing childId', async (done) => {
+            test('should fail on a non-existing child id', async (done) => {
+                const randomId: string = new ObjectId().toHexString();
                 try {
-                    const node = await sessionalize(Node.createNode, 'Child Node');
-                    expect(node).not.toBeNull();
+                    await sessionalize(Node.swapParent, randomId, null);
+                    fail('Did not trigger the non-existing child id error');
+                } catch (err) {
+                    expect(err.error).toBe('Node not found!');
+                    expect(err.message).toBe('childNodeId can\'t be found');
+                }
+                done();
+            });
 
-                    const res = await request(server)
-                    .put('/node')
-                    .send({
-                        parentId: node.id
-                    });
+            test('should fail on an incorrect id format', async (done) => {
+                const randomId: string = 'gf234';
+                try {
+                    await sessionalize(Node.swapParent, randomId, null);
+                    fail('Did not trigger the non-existing child id error');
+                } catch (err) {
+                    expect(err.error).toBe('Node not found!');
+                    expect(err.message).toBe('Incorrect childId format');
+                }
+                done();
+            });
+        });
 
-                    expect(res.status).toBe(400);
-                    expect(res.body.error).toBe('Missing parameters!');
-                    expect(res.body.message).toBe('Make sure that key \'childId\' is specified');
+        // Because setParent is a subfunction of swapParent, there will be no tests on setting parents
+        // rather tests checking for error triggers
+        describe('setParent', () => {
+
+            test('should throw an error when using a non-existing parent', async (done) => {
+                const randomId: string = new ObjectId().toHexString();
+                try {
+                    let node_1: INode | null = await sessionalize(Node.createNode, 'Root Node');
+                    let node_2: INode | null = await sessionalize(Node.createNode, 'Child Node', node_1.id);
+
+                    try {
+                        await sessionalize(Node.swapParent, node_1.id, randomId);
+                        fail('Did not trigger the non-existing parent error');
+                    } catch (err) {
+                        expect(err.error).toBe('Failed to find Node!');
+                        expect(err.message).toBe('parentId not found');
+                    }
+                } catch (err) {
+                    fail(err);
+                }
+                done();
+            });
+
+            test('should throw an error when using an incorrect id format', async (done) => {
+                const randomId: string = '5f43f';
+                try {
+                    let node_1: INode | null = await sessionalize(Node.createNode, 'Root Node');
+                    await sessionalize(Node.createNode, 'Child Node', node_1.id);
+
+                    try {
+                        await sessionalize(Node.swapParent, node_1.id, randomId);
+                        fail('Did not trigger the non-existing parent error');
+                    } catch (err) {
+                        expect(err.error).toBe('Failed to find Node!');
+                        expect(err.message).toBe('Incorrect parentId format');
+                    }
                 } catch (err) {
                     fail(err);
                 }
                 done();
             });
         });
-
     });
 });
