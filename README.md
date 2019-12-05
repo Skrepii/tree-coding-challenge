@@ -1,5 +1,7 @@
 # Tree coding challenge
 
+![](https://github.com/Skrepii/tree-coding-challenge/workflows/Tree%20Coding/badge.svg)
+
 Tree node structure written in TypeScript. Created with the use as an API, that's written on top of Node.js. Additionally everything is running from inside of Docker containers.
 
 ## Testing
