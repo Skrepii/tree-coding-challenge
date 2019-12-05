@@ -29,7 +29,7 @@
     "clearMocks": false,
     "testEnvironment": "node",
     "testMatch": [
-      "**/?(*.)+(spec|test).js?(x)"
+      "**/*.test.js"
     ]
   }
 }
