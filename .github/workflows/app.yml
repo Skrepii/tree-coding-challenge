@@ -24,3 +24,17 @@ jobs:
               run: npm install
             - name: Run Tests
               run: npm run test
+    publish:
+        needs: tests
+        runs-on: ubuntu-latest
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v1
+          - name: Publish Docker image
+            env:
+              DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+              GIT_TOKEN: ${{ secrets.GIT_TOKEN }}
+            run: |
+              echo "$GIT_TOKEN" | docker login docker.pkg.github.com --username "$DOCKER_USERNAME" --password-stdin
+              docker build -t docker.pkg.github.com/$DOCKER_USERNAME/tree-coding-challenge/tree-node-api:latest .
+              docker push docker.pkg.github.com/$DOCKER_USERNAME/tree-coding-challenge/tree-node-api:latest
