@@ -4,6 +4,8 @@
 
 Tree node structure written in TypeScript. Created with the use as an API, that's written on top of Node.js. Additionally everything is running from inside of Docker containers.
 
+NOTE: GITHUB ACTIONS AND DOCKER REGISTRY USAGE IS FOR TESTING PURPOSES ONLY
+
 ## Testing
 
 Once a Docker image is built and the containers are started, the API container will run Jest tests to see whether the API commands are running properly. If tests will fail the container will fail to spin up. If the tests pass it will be ready to go!
